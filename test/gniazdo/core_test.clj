@@ -2,18 +2,60 @@
   (:require [clojure.string :as str])
   (:use clojure.test
         gniazdo.core
+        [clojure.string :only [split trim lower-case]]
         [org.httpkit.server :only [with-channel
                                    on-receive
                                    run-server
-                                   send!]])
+                                   send!
+                                   accept]])
   (:import [java.util.concurrent Future]
-           [org.eclipse.jetty.websocket.api Session]))
+           [javax.websocket Session]
+           [org.httpkit.server AsyncChannel]))
 
 (declare ^:dynamic *recv*)
 
+(defn subprotocol? [proto req]
+  (if-let [protocols (get-in req [:headers "sec-websocket-protocol"])]
+    (some #{proto}
+          (map #(lower-case (trim %))
+               (split protocols #",")))))
+
+(defn add-headers [headers req]
+  (let [extensions (get-in req [:headers "sec-websocket-extensions"])
+        protocols (get-in req [:headers "sec-websocket-protocol"])]
+    (cond-> headers
+            extensions (assoc "Sec-WebSocket-Extensions" extensions) ;; accept all
+            protocols (assoc "Sec-WebSocket-Protocol" protocols))))
+
+(def latest-headers (atom nil))
+
+;; From https://gist.github.com/cgmartin/5880732
+;; TODO Use this for subproto test
+(defmacro with-accept-all-channel
+  [request ch-name & body]
+  `(let [~ch-name (:async-channel ~request)]
+     (reset! latest-headers (:headers ~request))
+     (if (:websocket? ~request)
+       (if-let [key# (get-in ~request [:headers "sec-websocket-key"])]
+         (do
+           (.sendHandshake ~(with-meta ch-name {:tag `AsyncChannel})
+                           (add-headers
+                             {"Upgrade"    "websocket"
+                              "Sec-WebSocket-Accept" (accept key#)
+                              "Connection" "Upgrade"}
+                             ~request)
+                           #_
+                           {"Upgrade"    "websocket"
+                            "Sec-WebSocket-Accept" (accept key#)
+                            "Connection" "Upgrade"})
+           ~@body
+           {:body ~ch-name})
+         {:status 400 :body "missing or bad WebSocket-Key"})
+       {:status 400 :body "not websocket protocol"})))
+
 (defn- ws-srv
   [req]
-  (with-channel req conn
+  (with-accept-all-channel req conn
     (on-receive conn (partial *recv* req conn))))
 
 (use-fixtures
@@ -132,10 +174,10 @@
               uri
               :subprotocols ["wamp"]
               :on-connect (fn [^Session session]
-                            (reset! result (.. session getUpgradeRequest getSubProtocols))
+                            (reset! result (.getNegotiatedSubprotocol session))
                             (.release sem)))]
     (with-timeout (.acquire sem))
-    (is (= @result ["wamp"]))
+    (is (= @result "wamp"))
     (close conn)))
 
 (deftest extensions-test
@@ -145,10 +187,34 @@
                uri
                :extensions ["permessage-deflate"]
                :on-connect (fn [^Session session]
-                             (reset! result (.. session getUpgradeRequest getExtensions))
+                             (reset! result (.getNegotiatedExtensions session))
                              (.release sem)))]
     (with-timeout (.acquire sem))
-    (is (-> @result
-          (.get 0)
-          (.getName)) "permessage-deflate")
+    (is (= (count @result) 1))
+    (is (= (map #(.getName %) @result) ["permessage-deflate"]))
     (close conn)))
+
+(deftest headers-test
+  (let [sem (java.util.concurrent.Semaphore. 0)
+        conn (connect
+               uri
+               :headers {"X-Header-1" "hi", "X-Header-2" "there"}
+               :on-connect (fn [^Session session]
+                             (.release sem)))]
+    (with-timeout (.acquire sem))
+    (is (=
+          (select-keys @latest-headers ["x-header-1" "x-header-2"])
+          {"x-header-1" "hi", "x-header-2" "there"}))
+    (close conn)))
+
+;; connect should throw an exception
+(deftest connect-failure-test
+  (with-redefs [*recv* (constantly nil)]
+    (let [on-error-result (atom nil)]
+      (try (connect
+             "ws://nonexistent-server.example.com"
+             :on-error #(reset! on-error-result %))
+         (is false "It should not reach here for connect should have thrown an exception")
+         (catch javax.websocket.DeploymentException e
+           (is (.contains (.getMessage e) "Connection failed."))
+           (is (nil? @on-error-result) "on-error shouldn't be called when the connection itself fails; instead, connect throws"))))))

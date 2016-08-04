@@ -2,35 +2,32 @@
   (:import java.net.URI
            java.nio.ByteBuffer
            java.util.List
-           (org.eclipse.jetty.websocket.client ClientUpgradeRequest
-                                               WebSocketClient)
-           (org.eclipse.jetty.util.ssl SslContextFactory)
-           (org.eclipse.jetty.websocket.api WebSocketListener
-                                            RemoteEndpoint
-                                            Session)
-           (org.eclipse.jetty.websocket.api.extensions ExtensionConfig)))
+           (javax.websocket Endpoint
+                            EndpointConfig
+                            ClientEndpointConfig$Builder CloseReason ClientEndpointConfig ClientEndpointConfig$Configurator RemoteEndpoint$Basic Session WebSocketContainer ContainerProvider)
+           (gniazdo TextMessageHandler BinaryMessageHandler WebsocketExtension)))
 
 (set! *warn-on-reflection* 1)
 
 ;; ## Messages
 
-(defprotocol Sendable
-  (send-to-endpoint [this ^RemoteEndpoint e]
+(defprotocol Sendable ;; FIXME Conflict: e isn't org.eclipse.jetty.websocket.api.RemoteEndpoint anymore but javax.websocket.RemoteEndpoint
+  (send-to-endpoint [this ^RemoteEndpoint$Basic e]
     "Sends an entity to a given WebSocket endpoint."))
 
 (extend-protocol Sendable
   java.lang.String
-  (send-to-endpoint [msg ^RemoteEndpoint e]
-    @(.sendStringByFuture e msg))
+  (send-to-endpoint [msg ^RemoteEndpoint$Basic e]
+    (.sendText e msg))
 
   java.nio.ByteBuffer
-  (send-to-endpoint [buf ^RemoteEndpoint e]
-    @(.sendBytesByFuture e buf)))
+  (send-to-endpoint [buf ^RemoteEndpoint$Basic e]
+    (.sendBinary e buf)))
 
 (extend-type (class (byte-array 0))
   Sendable
-  (send-to-endpoint [data ^RemoteEndpoint e]
-    @(.sendBytesByFuture e (ByteBuffer/wrap data))))
+  (send-to-endpoint [data ^RemoteEndpoint$Basic e]
+    (.sendBinary e (ByteBuffer/wrap data))))
 
 ;; ## Client
 
@@ -43,121 +40,117 @@
 ;; ## WebSocket Helpers
 
 (defn- add-headers!
-  [^ClientUpgradeRequest request headers]
+  ^ClientEndpointConfig$Builder
+  [^ClientEndpointConfig$Builder builder headers]
   {:pre [(every? string? (keys headers))]}
-  (doseq [[header value] headers]
-    (let [header-values (if (sequential? value)
-                          value
-                          [value])]
-      (assert (every? string? header-values))
-      (.setHeader
-        request
-        ^String header
-        ^java.util.List header-values))))
+  (.configurator
+    builder
+    (proxy [ClientEndpointConfig$Configurator] []
+      (beforeRequest [^java.util.Map headersMap]
+        (doseq [[header value] headers]
+          (let [header-values (if (sequential? value)
+                                value
+                                [value])]
+            (assert (every? string? header-values))
+            (.put headersMap header header-values)))))))
 
 (defn- add-subprotocols!
-  [^ClientUpgradeRequest request subprotocols]
+  ^ClientEndpointConfig$Builder
+  [^ClientEndpointConfig$Builder builder subprotocols]
   {:pre [(or (nil? subprotocols) (sequential? subprotocols))
          (every? string? subprotocols)]}
-  (when (seq subprotocols)
-    (.setSubProtocols request ^List (into () subprotocols))))
+  (if (seq subprotocols)
+    (.preferredSubprotocols builder ^List (into () subprotocols))
+    builder))
 
 (defn- add-extensions!
-  [^ClientUpgradeRequest request extensions]
+  ^ClientEndpointConfig$Builder
+  [^ClientEndpointConfig$Builder builder extensions]
   {:pre [(or (nil? extensions) (sequential? extensions))
          (every? string? extensions)]}
-  (when (seq extensions)
-    (.setExtensions request ^List (map #(ExtensionConfig. ^String %)
-                                       extensions))))
+  (if (seq extensions)
+    (.extensions builder ^List (map #(WebsocketExtension. ^String %)
+                                    extensions))
+    builder))
 
-(defn- upgrade-request
-  ^ClientUpgradeRequest
+(defn- make-config
+  ^ClientEndpointConfig
   [{:keys [headers subprotocols extensions]}]
-  (doto (ClientUpgradeRequest.)
-    (add-headers! headers)
-    (add-subprotocols! subprotocols)
-    (add-extensions! extensions)))
+  "Add extensions, headers, and subprotocols if any. (former upgrade-request)"
+  (as-> (ClientEndpointConfig$Builder/create) b
+        ;(.decoders b []) ;; remove defaults so they will not mess up with our processing?
+        ;(.encoders b []) ;; remove defaults so they will not mess up with our processing?
+        (add-headers! b headers)
+        (add-subprotocols! b subprotocols)
+        (add-extensions! b extensions)
+        (.build b)))
 
-(defn- listener
-  ^WebSocketListener
-  [{:keys [on-connect on-receive on-binary on-error on-close]
-    :or {on-connect (constantly nil)
-         on-receive (constantly nil)
-         on-binary  (constantly nil)
-         on-error   (constantly nil)
-         on-close   (constantly nil)}}
-   result-promise]
-  (reify WebSocketListener
-    (onWebSocketText [_ msg]
-      (on-receive msg))
-    (onWebSocketBinary [_ data offset length]
-      (on-binary data offset length))
-    (onWebSocketError [_ throwable]
-      (if (realized? result-promise)
-        (on-error throwable)
-        (deliver result-promise throwable)))
-    (onWebSocketConnect [_ session]
-      (deliver result-promise session)
-      (on-connect session))
-    (onWebSocketClose [_ x y]
-      (on-close x y))))
+(defn listener [{:keys  [on-connect on-receive on-binary on-error on-close]
+                    :or {on-connect (constantly nil)
+                         on-receive (constantly nil)
+                         on-binary  (constantly nil)
+                         on-error   (constantly nil)
+                         on-close   (constantly nil)}}]
+  (proxy [Endpoint] []
 
-(defn- deref-session
-  ^Session
-  [result-promise]
-  (let [result @result-promise]
-    (if (instance? Throwable result)
-      (throw result)
-      result)))
+    (onOpen ^void [^Session session, ^EndpointConfig _]
+      (.addMessageHandler
+        session
+        (proxy [TextMessageHandler] []
+          (onMessage [msg]
+            (on-receive msg))))
+      (.addMessageHandler
+        session
+        (proxy [BinaryMessageHandler] []
+          (onMessage [data]
+            (on-binary data 0 (count data)))))
+      (on-connect session)) ;; FIXME This is javax.websockets.Session, not org.eclipse.jetty.websocket.api.Session (similar but not same)
+    (onError [^Session _, ^Throwable throwable]
+      (on-error throwable))
+    (onClose [^Session _, ^CloseReason closeReason]
+      (on-close
+        ;; Note: The codes are standardized, see
+        ;; <a href="https://tools.ietf.org/html/rfc6455#section-7.4.1">RFC 6455, Section 7.4.1 Defined Status Codes</a>
+        (.getCode (.getCloseCode closeReason))
+        (.getReasonPhrase closeReason)))))
 
 ;; ## WebSocket Client + Connection (API)
 
-(defn client
-  "Create a new instance of `WebSocketClient`. If the optionally supplied URI
-   is representing a secure WebSocket endpoint (\"wss://...\") an SSL-capable
-   instance will be returned."
-  (^WebSocketClient
-    [] (WebSocketClient.))
-  (^WebSocketClient
-    [^URI uri]
-    (if (= "wss" (.getScheme uri))
-      (WebSocketClient. (SslContextFactory.))
-      (WebSocketClient.))))
-
-(defn- connect-with-client
-  "Connect to a WebSocket using the supplied `WebSocketClient` instance."
-  [^WebSocketClient client ^URI uri opts]
-   (let [request (upgrade-request opts)
-         cleanup (::cleanup opts)
-         result-promise (promise)
-         listener (listener opts result-promise)]
-     (.connect client listener uri request)
-     (let [session (deref-session result-promise)]
-       (reify Client
-         (send-msg [_ msg]
-           (send-to-endpoint msg (.getRemote session)))
-         (close [_]
-           (when cleanup
-             (cleanup))
-           (.close session))))))
-
-(defn- connect-helper
-  [^URI uri opts]
-  (let [client (client uri)]
-    (try
-      (.start client)
-      (->> (assoc opts ::cleanup #(.stop client))
-           (connect-with-client client uri))
-      (catch Throwable ex
-        (.stop client)
-        (throw ex)))))
+(defn- connect-internal
+  "Connect to a WebSocket."
+  [^WebSocketContainer client ^URI uri opts]
+  (let [endpoint-config (make-config opts)
+        ^Endpoint listener (listener opts)]
+    (let [session (.connectToServer
+                    client
+                    listener
+                    endpoint-config
+                    uri)]
+      (reify Client
+        (send-msg [_ msg]
+          (send-to-endpoint msg (.getBasicRemote session)))
+        (close [_]
+          (.close session))))))
 
 (defn connect
-  "Connects to a WebSocket at a given URI (e.g. ws://example.org:1234/socket)."
+  "Connects to a WebSocket at a given URI (e.g. ws://example.org:1234/socket).
+   Optionally provide a `client` (see org.glassfish.tyrus.client.ClientManager.createClient(),
+   its `.getProperties().put(..)`'8. Tyrus proprietary configuration' in the Tyrus documentation)
+   if you want any custom configuration (automatic reconnect, HTTP(S) proxy, custom SSL, ...).
+  "
   [uri & {:keys [on-connect on-receive on-binary on-error on-close headers client
                  subprotocols extensions]
           :as opts}]
-  (let [uri' (URI. uri)]
-    (if client
-      (connect-with-client client uri' opts)
-      (connect-helper uri' opts))))
+  (let [uri' (URI. uri)
+        ^WebSocketContainer actual-client (or client (ContainerProvider/getWebSocketContainer))]
+    (connect-internal actual-client uri' opts)))
+
+
+;; TODO
+;; TODO See 8.7 Client reconnect @ https://tyrus.java.net/documentation/1.9/user-guide.html
+;; If you need semi-persistent client connection, you can always implement some reconnect logic by yourself, but Tyrus Client offers useful feature which should be much easier to use:
+;; ClientManager client = ClientManager.createClient();
+;; ClientManager.ReconnectHandler reconnectHandler = new ClientManager.ReconnectHandler() {
+;; onDisconnect => return true to reconnect; similarly onConnectFailure}
+;; TODO 8.8. Client behind proxy
+;;   client.getProperties().put(ClientProperties.PROXY_URI, "http://my.proxy.com:80");
