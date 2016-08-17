@@ -6,6 +6,7 @@
                  [javax.websocket/javax.websocket-api "1.1"]]
   :source-paths      ["src"]
   :java-source-paths ["src-java"]
+  :javac-options     ["-target" "1.5" "-source" "1.5"] ;; the lowest acceptable so everybody can use us
   :repl-options {:init-ns gniazdo.core}
   :profiles {:dev
              {:dependencies [[http-kit "2.1.19"]]}})
