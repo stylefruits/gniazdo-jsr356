@@ -5,7 +5,8 @@
            (javax.websocket Endpoint
                             EndpointConfig
                             ClientEndpointConfig$Builder CloseReason ClientEndpointConfig ClientEndpointConfig$Configurator RemoteEndpoint$Basic Session WebSocketContainer ContainerProvider)
-           (gniazdo TextMessageHandler BinaryMessageHandler WebsocketExtension)))
+           (gniazdo TextMessageHandler BinaryMessageHandler WebsocketExtension)
+           (org.glassfish.tyrus.client ClientManager)))
 
 (set! *warn-on-reflection* 1)
 
@@ -132,6 +133,17 @@
         (close [_]
           (.close session))))))
 
+(defn default-client []
+  (let [tyrus-props (->> (System/getProperties)
+                         (filter (fn [[^String k]] (.startsWith k "org.glassfish.tyrus.client.")))
+                         (into {}))]
+    (if (empty? tyrus-props)
+      (ContainerProvider/getWebSocketContainer)
+      (do
+        (println "gniazdo: Creating a websocket client with the properties" tyrus-props)
+        (doto (ClientManager/createClient)
+          (.. (getProperties) (putAll tyrus-props)))))))
+
 (defn connect
   "Connects to a WebSocket at a given URI (e.g. ws://example.org:1234/socket).
    Optionally provide a `client` (see org.glassfish.tyrus.client.ClientManager.createClient(),
@@ -142,7 +154,7 @@
                  subprotocols extensions]
           :as opts}]
   (let [uri' (URI. uri)
-        ^WebSocketContainer actual-client (or client (ContainerProvider/getWebSocketContainer))]
+        ^WebSocketContainer actual-client (or client (default-client))]
     (connect-internal actual-client uri' opts)))
 
 

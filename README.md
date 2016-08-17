@@ -1,11 +1,29 @@
 # Gniazdo
 
 [Gniazdo][def] is a [WebSocket][ws] client for Clojure. Its main purpose is
-testing WebSockets services without a browser. It uses [Jetty's][jetty]
-implementation of the WebSocket protocol. It supports both `ws://` and `wss://`
-schemas.
+testing WebSockets services without a browser. It uses [`javax.websockets` APIs][jxws]
+and thus can be used with any compatible implementation, f.ex. [Tyrus][tyrus],
+the reference implementation, or [Jetty][jetty-ws].
+It supports both `ws://` and `wss://` schemas.
+
+
+We use Tyrus by default since it provides [more configuration options][tyruscfg]
+(HTTP proxy etc.). You can either
+pass in a custom `client` already configured or set Java [System properties with the names expected by
+Tyrus][tyrusprop]
+(i.e. starting with `org.glassfish.tyrus.client.`).
+
+If you would prefer another implementation, [exclude the default dependency][lein-exc]
+of Gniazdo and add your own dependency on the desired implementation.
 
 [![Build Status](https://travis-ci.org/stylefruits/gniazdo.svg)](https://travis-ci.org/stylefruits/gniazdo)
+
+[jxws]: https://docs.oracle.com/javaee/7/api/javax/websocket/package-summary.html
+[tyrus]: ttps://tyrus.java.net/
+[jetty-ws]: https://github.com/jetty-project/embedded-jetty-websocket-examples/tree/master/javax.websocket-example
+[tyruscfg]: https://tyrus.java.net/documentation/1.9/index/tyrus-proprietary-config.html
+[tyrusprop]: https://github.com/tyrus-project/tyrus/blob/ecc6941e5264f63d62d3f882960806c82209640f/client/src/main/java/org/glassfish/tyrus/client/ClientProperties.java
+[lein-exc]: http://stackoverflow.com/questions/6802026/how-do-i-exclude-jars-from-a-leiningen-project
 
 ## Usage
 
