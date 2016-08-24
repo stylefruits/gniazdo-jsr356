@@ -12,7 +12,7 @@
 
 ;; ## Messages
 
-(defprotocol Sendable ;; FIXME Conflict: e isn't org.eclipse.jetty.websocket.api.RemoteEndpoint anymore but javax.websocket.RemoteEndpoint
+(defprotocol Sendable
   (send-to-endpoint [this ^RemoteEndpoint$Basic e]
     "Sends an entity to a given WebSocket endpoint."))
 
@@ -133,7 +133,7 @@
         (close [_]
           (.close session))))))
 
-(defn default-client []
+(defn client []
   (let [tyrus-props (->> (System/getProperties)
                          (filter (fn [[^String k]] (.startsWith k "org.glassfish.tyrus.client.")))
                          (into {}))]
@@ -154,7 +154,7 @@
                  subprotocols extensions]
           :as opts}]
   (let [uri' (URI. uri)
-        ^WebSocketContainer actual-client (or client (default-client))]
+        ^WebSocketContainer actual-client (or client (gniazdo.core/client))]
     (connect-internal actual-client uri' opts)))
 
 

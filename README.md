@@ -1,14 +1,14 @@
-# Gniazdo
+# Gniazdo-jsr356
 
-[Gniazdo][def] is a [WebSocket][ws] client for Clojure. Its main purpose is
-testing WebSockets services without a browser. It uses [`javax.websockets` APIs][jxws]
-and thus can be used with any compatible implementation, f.ex. [Tyrus][tyrus],
-the reference implementation, or [Jetty][jetty-ws].
-It supports both `ws://` and `wss://` schemas.
-
+[Gniazdo-jsr356][def] is a fork of [Gniazdo](https://github.com/stylefruits/gniazdo/),
+the [WebSocket][ws] client for Clojure, that exposes the same API as Gniazdo but
+uses internally the [`javax.websockets`][jxws] (JSR 356) API. Thus it is possible to use it with any
+implementation of that API, f.ex. [Tyrus][tyrus] (default) or [Jetty][jetty-ws]. That makes it possible to pick the
+implementation that fits your needs best - f.ex. as of now, Jetty - contrary to Tyrus - does not support HTTP(s) proxies.
+Just as Gnizado, it  supports both `ws://` and `wss://` schemas.
 
 We use Tyrus by default since it provides [more configuration options][tyruscfg]
-(HTTP proxy etc.). You can either
+(HTTP proxy, automatic reconnection, etc.). You can either
 pass in a custom `client` already configured or set Java [System properties with the names expected by
 Tyrus][tyrusprop]
 (i.e. starting with `org.glassfish.tyrus.client.`).
@@ -16,20 +16,23 @@ Tyrus][tyrusprop]
 If you would prefer another implementation, [exclude the default dependency][lein-exc]
 of Gniazdo and add your own dependency on the desired implementation.
 
-[![Build Status](https://travis-ci.org/stylefruits/gniazdo.svg)](https://travis-ci.org/stylefruits/gniazdo)
-
-[jxws]: https://docs.oracle.com/javaee/7/api/javax/websocket/package-summary.html
-[tyrus]: ttps://tyrus.java.net/
-[jetty-ws]: https://github.com/jetty-project/embedded-jetty-websocket-examples/tree/master/javax.websocket-example
-[tyruscfg]: https://tyrus.java.net/documentation/1.9/index/tyrus-proprietary-config.html
-[tyrusprop]: https://github.com/tyrus-project/tyrus/blob/ecc6941e5264f63d62d3f882960806c82209640f/client/src/main/java/org/glassfish/tyrus/client/ClientProperties.java
-[lein-exc]: http://stackoverflow.com/questions/6802026/how-do-i-exclude-jars-from-a-leiningen-project
+<!-- TODO [![Build Status](https://travis-ci.org/stylefruits/gniazdo.svg)](https://travis-ci.org/stylefruits/gniazdo) -->
 
 ## Usage
 
 Add the following artifact to `:dependencies` in your project.clj:
 
-[![Latest version](https://clojars.org/stylefruits/gniazdo/latest-version.svg)](https://clojars.org/stylefruits/gniazdo)
+<!-- [![Latest version](https://clojars.org/stylefruits/gniazdo/latest-version.svg)](https://clojars.org/stylefruits/gniazdo) -->
+```
+[stylefruits/gniazdo-jsr356 "2.0.0"]
+```
+
+Or, if you would prefer another implementation, f.ex. Jetty:
+
+```
+[stylefruits/gniazdo-jsr356 "2.0.0" :exclusions [org.glassfish.tyrus/tyrus-client org.glassfish.tyrus/tyrus-container-grizzly-client]]
+[org.eclipse.jetty.websocket/javax-websocket-client-impl "9.4.0.M1"]
+```
 
 Here's a minimal usage example:
 
@@ -61,7 +64,7 @@ given `uri`. The following `options`/callbacks are available:
    Arguments are an `int` status code and a `String` description of reason.
  - `:headers` – a map of string keys and either string or string seq values to be
    used as headers for the initial websocket connection request.
- - `:client` – an optional `WebSocketClient` instance to be used for connection
+ - `:client` – an optional [`WebSocketContainer`][wscontrainer] instance to be used for connection
    establishment; by default, a new one is created internally on each call.
  - `:subprotocols` – an optional sequence of `String`s specifying the subprotocols
    to announce.
@@ -69,8 +72,6 @@ given `uri`. The following `options`/callbacks are available:
    extensions.
 
 `gniazdo.core/connect` returns an opaque representation of the connection.
-
-See also [WebSocketListener][listener].
 
 ### `(gniazdo.core/send-msg [conn message])`
 
@@ -83,14 +84,24 @@ with `gniazdo.core/connect`. The message should be a `String`, `byte[]` or
 `gniazdo.core/close` closes a connection established with
 `gniazdo.core/connect`.
 
-### `(gniazdo.core/client [] [uri])`
+## Differences from Gniazdo
 
-`gniazdo.core/client` creates an instance of `WebSocketClient`, optionally
-based on the given URI. If secure WebSocket connections are desired, an
-SSL-capable instance will be created.
+### Different classes
 
-Note that the resulting client has to be started (`(.start client)`) before it
-can be used with `gniazdo.core/connect`.
+1. If you pass in a custom `:client`, it needs to implement [`javax.websocket.WebSocketContainer`][wscontrainer],
+   not `org.eclipse.jetty.websocket.client.WebSocketClient`.
+2. The `session` passed to `:on-connect` is [`javax.websocket.Session`][session], not `org.eclipse.jetty.websocket.api.Session`
+3. The argument `e` of the `Sendable` protocol is `javax.websocket.RemoteEndpoint`, not `org.eclipse.jetty.websocket.api.RemoteEndpoint`
+4. The Java exceptions that you might get when `connect` fails are likely different.
+
+### Different functionality
+
+When using Tyrus, it is possible to configure it not only in the code by passing a custom `client` instance
+but also using Java System properties:
+
+```
+java -Dorg.glassfish.tyrus.client.proxy=http://proxy.example.com:8080 -jar your-app-including-gniazdo.jar
+```
 
 ## License
 
@@ -111,5 +122,12 @@ can be used with `gniazdo.core/connect`.
 [def]: https://en.wiktionary.org/wiki/gniazdo
 [ws]: https://en.wikipedia.org/wiki/WebSocket
 [jetty]: http://www.eclipse.org/jetty/
-[session]: http://download.eclipse.org/jetty/stable-9/apidocs/org/eclipse/jetty/websocket/api/Session.html
-[listener]: http://download.eclipse.org/jetty/stable-9/apidocs/org/eclipse/jetty/websocket/api/WebSocketListener.html
+[jxws]: https://docs.oracle.com/javaee/7/api/javax/websocket/package-summary.html
+[tyrus]: ttps://tyrus.java.net/
+[jetty-ws]: https://github.com/jetty-project/embedded-jetty-websocket-examples/tree/master/javax.websocket-example
+[tyruscfg]: https://tyrus.java.net/documentation/1.9/index/tyrus-proprietary-config.html
+[tyrusprop]: https://github.com/tyrus-project/tyrus/blob/ecc6941e5264f63d62d3f882960806c82209640f/client/src/main/java/org/glassfish/tyrus/client/ClientProperties.java
+[lein-exc]: http://stackoverflow.com/questions/6802026/how-do-i-exclude-jars-from-a-leiningen-project
+
+[session]: https://docs.oracle.com/javaee/7/api/javax/websocket/Session.html
+[wscontrainer]: https://docs.oracle.com/javaee/7/api/javax/websocket/WebSocketContainer.html
