@@ -16,16 +16,13 @@ Tyrus][tyrusprop]
 If you would prefer another implementation, [exclude the default dependency][lein-exc]
 of Gniazdo and add your own dependency on the desired implementation.
 
-<!-- TODO [![Build Status](https://travis-ci.org/stylefruits/gniazdo.svg)](https://travis-ci.org/stylefruits/gniazdo) -->
+[![Build Status](https://travis-ci.org/stylefruits/gniazdo-jsr356.svg)](https://travis-ci.org/stylefruits/gniazdo-jsr356)
 
 ## Usage
 
 Add the following artifact to `:dependencies` in your project.clj:
 
-<!-- [![Latest version](https://clojars.org/stylefruits/gniazdo/latest-version.svg)](https://clojars.org/stylefruits/gniazdo) -->
-```
-[stylefruits/gniazdo-jsr356 "2.0.0"]
-```
+[![Latest version](https://clojars.org/stylefruits/gniazdo-jsr356/latest-version.svg)](https://clojars.org/stylefruits/gniazdo-jsr356)
 
 Or, if you would prefer another implementation, f.ex. Jetty:
 
