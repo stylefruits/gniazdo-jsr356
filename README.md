@@ -4,7 +4,7 @@
 the [WebSocket][ws] client for Clojure, that exposes the same API as Gniazdo but
 uses internally the [`javax.websockets`][jxws] (JSR 356) API. Thus it is possible to use it with any
 implementation of that API, f.ex. [Tyrus][tyrus] (default) or [Jetty][jetty-ws]. That makes it possible to pick the
-implementation that fits your needs best - f.ex. as of now, Jetty - contrary to Tyrus - does not support HTTP(s) proxies.
+implementation that fits your needs best - f.ex. as of now, Jetty (at least <= 9.3) - contrary to Tyrus - does [not support HTTP(s) proxies](https://github.com/eclipse/jetty.project/issues/117).
 Just as Gnizado, it  supports both `ws://` and `wss://` schemas.
 
 We use Tyrus by default since it provides [more configuration options][tyruscfg]
@@ -123,7 +123,7 @@ java -Dorg.glassfish.tyrus.client.proxy=http://proxy.example.com:8080 -jar your-
 [ws]: https://en.wikipedia.org/wiki/WebSocket
 [jetty]: http://www.eclipse.org/jetty/
 [jxws]: https://docs.oracle.com/javaee/7/api/javax/websocket/package-summary.html
-[tyrus]: ttps://tyrus.java.net/
+[tyrus]: https://tyrus.java.net/
 [jetty-ws]: https://github.com/jetty-project/embedded-jetty-websocket-examples/tree/master/javax.websocket-example
 [tyruscfg]: https://tyrus.java.net/documentation/1.9/index/tyrus-proprietary-config.html
 [tyrusprop]: https://github.com/tyrus-project/tyrus/blob/ecc6941e5264f63d62d3f882960806c82209640f/client/src/main/java/org/glassfish/tyrus/client/ClientProperties.java
