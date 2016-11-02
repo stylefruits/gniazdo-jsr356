@@ -27,7 +27,9 @@ Add the following artifact to `:dependencies` in your project.clj:
 Or, if you would prefer another implementation, f.ex. Jetty:
 
 ```
-[stylefruits/gniazdo-jsr356 "2.0.0" :exclusions [org.glassfish.tyrus/tyrus-client org.glassfish.tyrus/tyrus-container-grizzly-client]]
+[stylefruits/gniazdo-jsr356 "1.0.0"
+ :exclusions [org.glassfish.tyrus/tyrus-client
+              org.glassfish.tyrus/tyrus-container-grizzly-client]]
 [org.eclipse.jetty.websocket/javax-websocket-client-impl "9.4.0.M1"]
 ```
 
