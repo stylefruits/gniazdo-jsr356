@@ -1,4 +1,4 @@
-(defproject stylefruits/gniazdo-jsr356 "1.0.0"
+(defproject stylefruits/gniazdo-jsr356 "1.0.1-SNAPSHOT"
   :description "A WebSocket client for Clojure"
   :dependencies [[org.clojure/clojure "1.5.1"]
                  [org.glassfish.tyrus/tyrus-client "1.9"]
